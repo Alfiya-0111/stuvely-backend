@@ -1,0 +1,22 @@
+{
+    "name": "backend",
+    "version": "1.0.0",
+    "description": "Shiprocket Auto-Tracking Backend with Firebase Integration",
+    "main": "server.js",
+    "type": "module",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "keywords": [],
+    "author": "Khan Alfiya Khatoon",
+    "license": "ISC",
+    "dependencies": {
+        "axios": "^1.13.1",
+        "cors": "^2.8.5",
+        "dotenv": "^17.2.3",
+        "express": "^5.1.0",
+        "firebase": "^12.4.0",
+        "firebase-admin": "^13.6.0",
+        "node-fetch": "^3.3.2"
+    }
+}
