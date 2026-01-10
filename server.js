@@ -3,8 +3,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 import axios from "axios";
 import admin from "firebase-admin";
-import fs from "fs";
-import path from "path";
+
+
 
 dotenv.config();
 
@@ -25,26 +25,19 @@ const MODE = process.env.MODE || "test"; // "test" | "live"
 // ------------------------------
 // Firebase Admin init
 // ------------------------------
-const keyPath =
-  process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "./serviceAccountKey.json";
-
-if (!fs.existsSync(keyPath)) {
-  console.error("❌ Service account file not found:", keyPath);
-  process.exit(1);
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+    }),
+    databaseURL: process.env.FIREBASE_DB_URL,
+  });
 }
 
-const serviceAccount = JSON.parse(fs.readFileSync(keyPath, "utf8"));
-
-const databaseURL =
-  process.env.FIREBASE_DB_URL ||
-  `https://${serviceAccount.project_id}.firebaseio.com`;
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL,
-});
-
 const db = admin.database();
+
 
 // ------------------------------
 // Shiprocket token manager
