@@ -1,4 +1,4 @@
-
+import fs from "fs";
 
 import express from "express";
 import cors from "cors";
@@ -27,23 +27,36 @@ const MODE = process.env.MODE || "test"; // "test" | "live"
 // ------------------------------
 // Firebase Admin init
 // ------------------------------
+// ------------------------------
+// Firebase Admin init (Railway FIX)
+// ------------------------------
 if (!admin.apps.length) {
+  let serviceAccount;
+
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    // Railway / production
+    serviceAccount = JSON.parse(
+      process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+    );
+  } else {
+    // Local
+    serviceAccount = JSON.parse(
+      fs.readFileSync("./serviceAccountKey.json", "utf8")
+    );
+  }
+
   admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY
-  ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
-  : undefined,
-    }),
+    credential: admin.credential.cert(serviceAccount),
     databaseURL: process.env.FIREBASE_DB_URL,
   });
 }
 
+
 console.log("🔥 Firebase Admin initialized");
 
 
-console.log("🔥 Firebase Admin initialized");
+
+
 
 
 const db = admin.database();
