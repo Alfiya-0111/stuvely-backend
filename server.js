@@ -1,4 +1,4 @@
-import fs from "fs";
+
 
 import express from "express";
 import cors from "cors";
@@ -28,14 +28,18 @@ const MODE = process.env.MODE || "test"; // "test" | "live"
 // Firebase Admin init
 // ------------------------------
 if (!admin.apps.length) {
- admin.initializeApp({
-  credential: admin.credential.cert(
-    JSON.parse(fs.readFileSync(process.env.FIREBASE_SERVICE_ACCOUNT_PATH))
-  ),
-  databaseURL: process.env.FIREBASE_DB_URL,
-});
-
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    }),
+    databaseURL: process.env.FIREBASE_DB_URL,
+  });
 }
+
+console.log("🔥 Firebase Admin initialized");
+
 
 console.log("🔥 Firebase Admin initialized");
 
