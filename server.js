@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import axios from "axios";
 import admin from "firebase-admin";
 
+import { db } from "./firebaseAdmin.js";
 
 
 dotenv.config();
@@ -51,16 +52,83 @@ if (!admin.apps.length) {
   });
 }
 
+// 🔥 SITEMAP ROUTE
+app.get("/sitemap.xml", async (req, res) => {
+  try {
+    let urls = [];
 
-console.log("🔥 Firebase Admin initialized");
+    // 🔹 Static pages
+    const staticPages = [
+      "/",
+      "/about",
+      "/contact",
+      "/privacy",
+      "/security",
+      "/cancellation",
+      "/payment",
+    ];
 
+    staticPages.forEach((page) => {
+      urls.push(`
+        <url>
+          <loc>https://stuvely.com${page}</loc>
+          <changefreq>monthly</changefreq>
+          <priority>0.8</priority>
+        </url>
+      `);
+    });
 
+    // 🔹 PRODUCTS / SPECS
+    const specsSnap = await db.ref("specs").once("value");
+    const specs = specsSnap.val();
 
+    console.log("🔥 SPECS DATA fetched from Firebase");
 
+    if (specs) {
+      const usedCollections = new Set();
 
+      Object.entries(specs).forEach(([productId, product]) => {
+        if (!product.slug) return;
 
-const db = admin.database();
+        const cleanSlug = product.slug.replace(/[:\/\s]+/g, "-");
 
+        // ✅ collection page (only once)
+        if (!usedCollections.has(cleanSlug)) {
+          usedCollections.add(cleanSlug);
+
+          urls.push(`
+            <url>
+              <loc>https://stuvely.com/collections/${cleanSlug}</loc>
+              <changefreq>weekly</changefreq>
+              <priority>0.9</priority>
+            </url>
+          `);
+        }
+
+        // ✅ product page
+        urls.push(`
+          <url>
+            <loc>https://stuvely.com/collections/${cleanSlug}/product/${productId}</loc>
+            <changefreq>weekly</changefreq>
+            <priority>0.9</priority>
+          </url>
+        `);
+      });
+    }
+
+    const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="https://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.join("")}
+</urlset>`;
+
+    res.set("Content-Type", "application/xml");
+    res.send(sitemap);
+
+  } catch (err) {
+    console.error("❌ Sitemap error:", err);
+    res.status(500).send("Sitemap error");
+  }
+});
 
 // ------------------------------
 // Shiprocket token manager
