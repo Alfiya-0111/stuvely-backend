@@ -57,7 +57,7 @@ app.get("/sitemap.xml", async (req, res) => {
   try {
     let urls = [];
 
-    // 🔹 Static pages
+    // 🔹 Static Pages
     const staticPages = [
       "/",
       "/about",
@@ -68,7 +68,7 @@ app.get("/sitemap.xml", async (req, res) => {
       "/payment",
     ];
 
-    staticPages.forEach((page) => {
+    staticPages.forEach(page => {
       urls.push(`
         <url>
           <loc>https://stuvely.com${page}</loc>
@@ -78,41 +78,39 @@ app.get("/sitemap.xml", async (req, res) => {
       `);
     });
 
-    // 🔹 PRODUCTS / SPECS
-    const specsSnap = await db.ref("specs").once("value");
-    const specs = specsSnap.val();
+    // 🔹 Collections + Products
+    const snap = await db.ref("ourcollections").once("value");
+    const collections = snap.val();
 
-    console.log("🔥 SPECS DATA fetched from Firebase");
+    console.log("🔥 COLLECTION DATA:", collections);
 
-    if (specs) {
-      const usedCollections = new Set();
+    if (collections) {
+      Object.entries(collections).forEach(([collectionId, collection]) => {
+        if (!collection.slug) return;
 
-      Object.entries(specs).forEach(([productId, product]) => {
-        if (!product.slug) return;
+        const collectionSlug = collection.slug;
 
-        const cleanSlug = product.slug.replace(/[:\/\s]+/g, "-");
-
-        // ✅ collection page (only once)
-        if (!usedCollections.has(cleanSlug)) {
-          usedCollections.add(cleanSlug);
-
-          urls.push(`
-            <url>
-              <loc>https://stuvely.com/collections/${cleanSlug}</loc>
-              <changefreq>weekly</changefreq>
-              <priority>0.9</priority>
-            </url>
-          `);
-        }
-
-        // ✅ product page
+        // ✅ Collection page
         urls.push(`
           <url>
-            <loc>https://stuvely.com/collections/${cleanSlug}/product/${productId}</loc>
+            <loc>https://stuvely.com/collections/${collectionSlug}</loc>
             <changefreq>weekly</changefreq>
             <priority>0.9</priority>
           </url>
         `);
+
+        // ✅ Products inside collection
+        if (collection.products) {
+          Object.entries(collection.products).forEach(([productId, product]) => {
+            urls.push(`
+              <url>
+                <loc>https://stuvely.com/collections/${collectionSlug}/product/${productId}</loc>
+                <changefreq>weekly</changefreq>
+                <priority>0.9</priority>
+              </url>
+            `);
+          });
+        }
       });
     }
 
@@ -124,11 +122,14 @@ ${urls.join("")}
     res.set("Content-Type", "application/xml");
     res.send(sitemap);
 
+    console.log("✅ Sitemap generated successfully");
+
   } catch (err) {
     console.error("❌ Sitemap error:", err);
     res.status(500).send("Sitemap error");
   }
 });
+
 
 // ------------------------------
 // Shiprocket token manager

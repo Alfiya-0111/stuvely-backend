@@ -1,25 +1,18 @@
 import admin from "firebase-admin";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
-// 🔐 Railway ENV variable se service account uthao
-if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-  console.error("❌ FIREBASE_SERVICE_ACCOUNT_JSON ENV missing");
-  process.exit(1);
-}
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-let serviceAccount;
-try {
-  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-} catch (err) {
-  console.error("❌ FIREBASE_SERVICE_ACCOUNT_JSON JSON invalid");
-  process.exit(1);
-}
+const serviceAccount = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "serviceAccountKey.json"), "utf8")
+);
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_DB_URL,
-  });
-}
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: "https://stuvely-data-default-rtdb.firebaseio.com",
+});
 
 export const db = admin.database();
-export default admin;
