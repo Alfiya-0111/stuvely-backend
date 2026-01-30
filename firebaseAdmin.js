@@ -1,18 +1,30 @@
+// firebaseAdmin.js
+import dotenv from "dotenv";
+dotenv.config();
+
+console.log("DB URL =>", process.env.FIREBASE_DB_URL); 
 import admin from "firebase-admin";
 import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+if (!admin.apps.length) {
+  let serviceAccount;
 
-const serviceAccount = JSON.parse(
-  fs.readFileSync(path.join(__dirname, "serviceAccountKey.json"), "utf8")
-);
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    // ✅ Railway / Production
+    serviceAccount = JSON.parse(
+      process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+    );
+  } else {
+    // ✅ Local development
+    serviceAccount = JSON.parse(
+      fs.readFileSync("./serviceAccountKey.json", "utf8")
+    );
+  }
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://stuvely-data-default-rtdb.firebaseio.com",
-});
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: process.env.FIREBASE_DB_URL,
+  });
+}
 
 export const db = admin.database();
