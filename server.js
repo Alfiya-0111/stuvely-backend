@@ -1,5 +1,5 @@
 import fs from "fs";
-
+// import Razorpay from "razorpay";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -26,6 +26,12 @@ const SHIPROCKET_BASE = "https://apiv2.shiprocket.in/v1/external";
 const MODE = process.env.MODE || "test"; // "test" | "live"
 
 // ------------------------------
+// const razorpay = new Razorpay({
+//   key_id: process.env.RAZORPAY_KEY,
+//   key_secret: process.env.RAZORPAY_SECRET,
+// });
+// ----------------------------------------------------
+
 
 
 
@@ -279,10 +285,9 @@ app.post("/create-shipment", async (req, res) => {
         r.data?.response?.data?.awb_code ||
         null;
     }
-
-    if (!awbNumber) {
-      awbNumber = generateDummyAWB();
-    }
+if (!awbNumber) {
+  throw new Error("Shiprocket did not return AWB");
+}
 
   await db.ref(`orders/${order.userId}/${order.orderId}`).update({
   // shipment info
@@ -323,6 +328,47 @@ app.post("/create-shipment", async (req, res) => {
     });
   }
 });
+// RAZORPAY REFUND
+// ----------------------------------------------------
+// app.post("/refund", async (req, res) => {
+//   try {
+//     const { paymentId, amount } = req.body;
+
+//     if (!paymentId || !amount) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Missing paymentId / amount",
+//       });
+//     }
+
+//     if (MODE === "test") {
+//       console.log("🟡 TEST MODE REFUND:", paymentId);
+//       return res.json({
+//         success: true,
+//         message: "Test refund simulated",
+//       });
+//     }
+
+//     const refund = await razorpay.payments.refund(paymentId, {
+//       amount: Math.round(amount * 100), // paisa
+//     });
+
+//     console.log("✅ REFUND SUCCESS:", refund.id);
+
+//     res.json({
+//       success: true,
+//       refundId: refund.id,
+//     });
+//   } catch (err) {
+//     console.error("❌ REFUND ERROR:", err.response?.data || err.message);
+
+//     res.status(500).json({
+//       success: false,
+//       message: "Refund failed",
+//       error: err.response?.data || err.message,
+//     });
+//   }
+// });
 
 // ----------------------------------------------------
 // TRACK SHIPMENT
@@ -444,6 +490,22 @@ app.post("/admin/approve-cancel", async (req, res) => {
     }
 
     const order = orderSnap.val();
+// ✅ REFUND IF PAID
+// if (order.paymentStatus === "Paid" && order.razorpay_payment_id) {
+
+//    console.log("💰 Initiating Razorpay Refund");
+
+//    try {
+//       await razorpay.payments.refund(order.razorpay_payment_id, {
+//          amount: Math.round(order.total * 100),
+//       });
+
+//       console.log("✅ Refund Success");
+
+//    } catch (e) {
+//       console.log("⚠ Refund Warning:", e.message);
+//    }
+// }
 
     if (
       MODE === "live" &&
@@ -494,6 +556,30 @@ app.post("/admin/approve-cancel", async (req, res) => {
       message: "Server error",
       error: err.message,
     });
+  }
+});
+app.post("/send-sms", async (req, res) => {
+  try {
+    const { phone, message } = req.body;
+
+    if (!phone || !message) {
+      return res.status(400).json({ success: false });
+    }
+
+    if (MODE === "test") {
+      console.log("🟡 TEST SMS:", phone, message);
+      return res.json({ success: true });
+    }
+
+    await axios.post("SMS_PROVIDER_API", {
+      phone,
+      message,
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("SMS ERROR:", err.message);
+    res.status(500).json({ success: false });
   }
 });
 
