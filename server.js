@@ -199,6 +199,9 @@ function buildOrderItems(items = [], orderDefaults = {}) {
 // -------------------------------------------------------
 // CREATE SHIPMENT - UPDATED
 // -------------------------------------------------------
+// -------------------------------------------------------
+// CREATE SHIPMENT - FULLY WORKING WITH AUTO AWB
+// -------------------------------------------------------
 app.post("/create-shipment", async (req, res) => {
   try {
     const order = req.body || {};
@@ -227,20 +230,19 @@ app.post("/create-shipment", async (req, res) => {
       0
     );
 
-    // 🔥 UNIQUE ORDER ID - Add timestamp to avoid conflicts
+    // Unique Order ID
     const uniqueOrderId = `${order.orderId}-${Date.now()}`;
 
-    let r = { data: {} };
     let shipmentId = null;
+    let awbCode = null;
 
     // REAL SHIPROCKET CALL
     if (MODE === "live") {
       // Step 1: Create Order
       const orderPayload = {
-        order_id: uniqueOrderId,  // 🔥 Use unique ID
+        order_id: uniqueOrderId,
         order_date: new Date().toISOString(),
-        pickup_location: SHIPROCKET_PICKUP.trim(),  // 🔥 Trim whitespace
-        
+        pickup_location: SHIPROCKET_PICKUP.trim(),
         billing_customer_name: order.customer_name.split(" ")[0] || "Customer",
         billing_last_name: order.customer_name.split(" ").slice(1).join(" ") || "",
         billing_address: order.address,
@@ -250,23 +252,19 @@ app.post("/create-shipment", async (req, res) => {
         billing_country: "India",
         billing_email: order.email || "demo@mail.com",
         billing_phone: String(order.phone || "9999999999"),
-        
         shipping_is_billing: true,
         payment_method: order.payment_method || "Prepaid",
-        
         sub_total,
         order_items: orderItems,
-        
         length: order.length || 10,
         breadth: order.breadth || 10,
         height: order.height || 10,
         weight: order.weight || 0.5,
       };
 
-      // 🔥 DEBUG LOG
-      console.log("🔥 Sending to Shiprocket:", JSON.stringify(orderPayload, null, 2));
+      console.log("🔥 Creating order:", uniqueOrderId);
 
-      r = await axios.post(
+      const orderRes = await axios.post(
         `${SHIPROCKET_BASE}/orders/create/adhoc`,
         orderPayload,
         {
@@ -278,114 +276,64 @@ app.post("/create-shipment", async (req, res) => {
         }
       );
 
-      console.log("🔥 Shiprocket Response:", JSON.stringify(r.data, null, 2));
+      console.log("🔥 Order Response:", JSON.stringify(orderRes.data, null, 2));
 
-      shipmentId = r.data?.shipment_id || r.data?.payload?.shipment_id;
-      
-      // Step 2: Generate AWB if shipment created but no AWB
-    // -------------------------------------------------------
-// GENERATE AWB SEPARATELY (Retry endpoint)
-// -------------------------------------------------------
-app.post("/generate-awb", async (req, res) => {
-  try {
-    const { shipmentId } = req.body;
-    
-    if (!shipmentId) {
-      return res.status(400).json({ success: false, message: "Missing shipmentId" });
-    }
-    
-    const token = await getShiprocketToken();
-    
-    const awbRes = await axios.post(
-      `${SHIPROCKET_BASE}/courier/assign/awb`,
-      {
-        shipment_id: [shipmentId],
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+      // Extract shipment_id
+      shipmentId = orderRes.data?.shipment_id || 
+                   orderRes.data?.payload?.shipment_id ||
+                   orderRes.data?.data?.shipment_id;
+
+      if (!shipmentId) {
+        throw new Error("No shipment_id returned from Shiprocket");
       }
-    );
-    
-    console.log("🔥 AWB Response:", JSON.stringify(awbRes.data, null, 2));
-    
-    const awbData = awbRes.data?.awb_assign?.[0] || awbRes.data?.response?.data?.[0] || {};
-    const awbCode = awbData?.awb_code || awbData?.awb;
-    
-    if (!awbCode) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "AWB not generated",
-        fullResponse: awbRes.data 
-      });
-    }
-    
-    return res.json({ 
-      success: true, 
-      awb: awbCode,
-      shipmentId 
-    });
-    
-  } catch (err) {
-    console.error("GENERATE AWB ERROR:", err.response?.data || err.message);
-    return res.status(500).json({ 
-      success: false, 
-      error: err.response?.data || err.message 
-    });
-  }
-});
-    }
 
-    // AWB NUMBER HANDLING
-    let awbNumber = null;
+      console.log("🔥 Shipment ID:", shipmentId);
 
-    if (MODE === "live") {
-      awbNumber =
-        r.data?.awb_code ||
-        r.data?.response?.data?.awb_code ||
-        null;
-        
-      console.log("🔥 Final AWB:", awbNumber);
-    }
-
-    if (!awbNumber && MODE === "live") {
-      // Don't throw error immediately - save shipment ID for retry
-      console.log("⚠️ No AWB yet, but shipment created with ID:", shipmentId);
+      // Step 2: Generate AWB (AUTO-SELECT COURIER)
+      console.log("🔥 Generating AWB with auto-courier selection...");
       
-      // Save partial data
-      await db.ref(`orders/${order.userId}/${order.orderId}`).update({
-        shipmentId: shipmentId,
-        shipmentOrderId: uniqueOrderId,
-        awbCode: null,
-        shipmentMode: MODE,
-        shippedAt: new Date().toISOString(),
-        customerName: order.customer_name,
-        address: order.address,
-        city: order.city,
-        state: order.state || "",
-        pincode: order.pincode,
-        phone: order.phone || "",
-        email: order.email || "",
-        awbPending: true,  // 🔥 Mark for retry
-      });
+      try {
+        const awbRes = await axios.post(
+          `${SHIPROCKET_BASE}/courier/assign/awb`,
+          {
+            shipment_id: [shipmentId],  // 🔥 Array format (required)
+            courier_id: null,            // 🔥 Auto-select cheapest courier
+            // courier_id: 10,           // 👈 Ya specific courier: 10=Delhivery, 1=Bluedart
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 30000,
+          }
+        );
 
-      return res.json({
-        success: true,
-        mode: MODE,
-        awb: null,
-        message: "Shipment created, AWB pending",
-        order_id: uniqueOrderId,
-        shipment_id: shipmentId,
-      });
+        console.log("🔥 AWB Response:", JSON.stringify(awbRes.data, null, 2));
+
+        // Parse AWB from multiple possible response structures
+        if (awbRes.data?.awb_assign?.[0]?.awb_code) {
+          awbCode = awbRes.data.awb_assign[0].awb_code;
+        } else if (awbRes.data?.response?.data?.[0]?.awb_code) {
+          awbCode = awbRes.data.response.data[0].awb_code;
+        } else if (awbRes.data?.data?.[0]?.awb_code) {
+          awbCode = awbRes.data.data[0].awb_code;
+        }
+
+        console.log("🔥 Final AWB Code:", awbCode);
+
+      } catch (awbErr) {
+        console.error("🔥 AWB Generation Error:", awbErr.response?.data || awbErr.message);
+        // Continue without AWB - order is still created
+        awbCode = null;
+      }
     }
 
-    // Save complete data
+    // Save to Firebase (with or without AWB)
     await db.ref(`orders/${order.userId}/${order.orderId}`).update({
       shipmentId: shipmentId,
       shipmentOrderId: uniqueOrderId,
-      awbCode: awbNumber,
+      awbCode: awbCode,  // null if AWB failed, actual code if success
       shipmentMode: MODE,
       shippedAt: new Date().toISOString(),
       customerName: order.customer_name,
@@ -395,21 +343,24 @@ app.post("/generate-awb", async (req, res) => {
       pincode: order.pincode,
       phone: order.phone || "",
       email: order.email || "",
+      awbPending: !awbCode,  // true if AWB not generated
     });
 
+    // Return response
     return res.json({
       success: true,
       mode: MODE,
-      awb: awbNumber,
+      awb: awbCode,  // 🔥 Yeh AWB code hoga (null agar fail hua)
+      message: awbCode ? "✅ Shipment created with AWB" : "⚠️ Shipment created, AWB pending",
       order_id: uniqueOrderId,
       shipment_id: shipmentId,
     });
+
   } catch (err) {
-    console.error("CREATE SHIPMENT ERROR:", err.response?.data || err.message);
+    console.error("❌ CREATE SHIPMENT ERROR:", err.response?.data || err.message);
     
-    // 🔥 DETAILED ERROR LOG
     if (err.response?.data) {
-      console.error("🔥 Full Error Response:", JSON.stringify(err.response.data, null, 2));
+      console.error("❌ Full Error:", JSON.stringify(err.response.data, null, 2));
     }
 
     return res.status(500).json({
