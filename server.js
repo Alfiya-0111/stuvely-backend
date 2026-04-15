@@ -196,10 +196,14 @@ function buildOrderItems(items = [], orderDefaults = {}) {
 // -------------------------------------------------------
 // CREATE SHIPMENT
 // -------------------------------------------------------
+// -------------------------------------------------------
+// CREATE SHIPMENT - UPDATED
+// -------------------------------------------------------
 app.post("/create-shipment", async (req, res) => {
   try {
     const order = req.body || {};
 
+    // Validation
     if (
       !order.orderId ||
       !order.customer_name ||
@@ -217,53 +221,54 @@ app.post("/create-shipment", async (req, res) => {
     }
 
     const token = await getShiprocketToken();
-    const orderItems = buildOrderItems(order.items, {
-      price: order.price,
-    });
-
+    const orderItems = buildOrderItems(order.items, { price: order.price });
     const sub_total = orderItems.reduce(
-      (sum, it) =>
-        sum +
-        Number(it.selling_price || 0) *
-          Number(it.units || 1),
+      (sum, it) => sum + Number(it.selling_price || 0) * Number(it.units || 1),
       0
     );
 
+    // 🔥 UNIQUE ORDER ID - Add timestamp to avoid conflicts
+    const uniqueOrderId = `${order.orderId}-${Date.now()}`;
+
     let r = { data: {} };
+    let shipmentId = null;
 
     // REAL SHIPROCKET CALL
     if (MODE === "live") {
+      // Step 1: Create Order
+      const orderPayload = {
+        order_id: uniqueOrderId,  // 🔥 Use unique ID
+        order_date: new Date().toISOString(),
+        pickup_location: SHIPROCKET_PICKUP.trim(),  // 🔥 Trim whitespace
+        
+        billing_customer_name: order.customer_name.split(" ")[0] || "Customer",
+        billing_last_name: order.customer_name.split(" ").slice(1).join(" ") || "",
+        billing_address: order.address,
+        billing_city: order.city,
+        billing_pincode: String(order.pincode),
+        billing_state: order.state || "",
+        billing_country: "India",
+        billing_email: order.email || "demo@mail.com",
+        billing_phone: String(order.phone || "9999999999"),
+        
+        shipping_is_billing: true,
+        payment_method: order.payment_method || "Prepaid",
+        
+        sub_total,
+        order_items: orderItems,
+        
+        length: order.length || 10,
+        breadth: order.breadth || 10,
+        height: order.height || 10,
+        weight: order.weight || 0.5,
+      };
+
+      // 🔥 DEBUG LOG
+      console.log("🔥 Sending to Shiprocket:", JSON.stringify(orderPayload, null, 2));
+
       r = await axios.post(
         `${SHIPROCKET_BASE}/orders/create/adhoc`,
-        {
-          order_id: String(order.orderId),
-          order_date: new Date().toISOString(),
-          pickup_location: SHIPROCKET_PICKUP,
-
-          billing_customer_name:
-            order.customer_name.split(" ")[0] || "Customer",
-          billing_last_name:
-            order.customer_name.split(" ").slice(1).join(" ") ||
-            "",
-          billing_address: order.address,
-          billing_city: order.city,
-          billing_pincode: String(order.pincode),
-          billing_state: order.state || "",
-          billing_country: "India",
-          billing_email: order.email || "demo@mail.com",
-          billing_phone: String(order.phone || "9999999999"),
-
-          shipping_is_billing: true,
-          payment_method: order.payment_method || "Prepaid",
-
-          sub_total,
-          order_items: orderItems,
-
-          length: order.length || 10,
-          breadth: order.breadth || 10,
-          height: order.height || 10,
-          weight: order.weight || 0.5,
-        },
+        orderPayload,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -272,60 +277,113 @@ app.post("/create-shipment", async (req, res) => {
           timeout: 30000,
         }
       );
+
+      console.log("🔥 Shiprocket Response:", JSON.stringify(r.data, null, 2));
+
+      shipmentId = r.data?.shipment_id || r.data?.payload?.shipment_id;
+      
+      // Step 2: Generate AWB if shipment created but no AWB
+      if (shipmentId && !r.data?.awb_code) {
+        console.log("🔥 Generating AWB for shipment:", shipmentId);
+        
+        try {
+          const awbRes = await axios.post(
+            `${SHIPROCKET_BASE}/courier/assign/awb`,
+            {
+              shipment_id: shipmentId,
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              timeout: 30000,
+            }
+          );
+          
+          console.log("🔥 AWB Response:", JSON.stringify(awbRes.data, null, 2));
+          
+          // Merge AWB data
+          r.data.awb_code = awbRes.data?.awb_code || awbRes.data?.response?.data?.awb_code;
+        } catch (awbErr) {
+          console.error("🔥 AWB Generation Error:", awbErr.response?.data || awbErr.message);
+        }
+      }
     }
 
-    // ---------------------------
     // AWB NUMBER HANDLING
-    // ---------------------------
+    let awbNumber = null;
 
-    // AWB NUMBER HANDLING
-let awbNumber = null;
+    if (MODE === "live") {
+      awbNumber =
+        r.data?.awb_code ||
+        r.data?.response?.data?.awb_code ||
+        null;
+        
+      console.log("🔥 Final AWB:", awbNumber);
+    }
 
-if (MODE === "live") {
-  awbNumber =
-    r.data?.awb_code ||
-    r.data?.response?.data?.awb_code ||
-    null;
-    
-  // 🔥 ADD DEBUG LOG
-  console.log("🔥 Shiprocket Response:", JSON.stringify(r.data, null, 2));
-  console.log("🔥 AWB found:", awbNumber);
-}
-if (!awbNumber) {
-  throw new Error("Shiprocket did not return AWB");
-}
+    if (!awbNumber && MODE === "live") {
+      // Don't throw error immediately - save shipment ID for retry
+      console.log("⚠️ No AWB yet, but shipment created with ID:", shipmentId);
+      
+      // Save partial data
+      await db.ref(`orders/${order.userId}/${order.orderId}`).update({
+        shipmentId: shipmentId,
+        shipmentOrderId: uniqueOrderId,
+        awbCode: null,
+        shipmentMode: MODE,
+        shippedAt: new Date().toISOString(),
+        customerName: order.customer_name,
+        address: order.address,
+        city: order.city,
+        state: order.state || "",
+        pincode: order.pincode,
+        phone: order.phone || "",
+        email: order.email || "",
+        awbPending: true,  // 🔥 Mark for retry
+      });
 
-  await db.ref(`orders/${order.userId}/${order.orderId}`).update({
-  // shipment info
-  shipmentId: r.data.shipment_id || null,
-  shipmentOrderId: r.data.order_id || null,
-  awbCode: awbNumber,
-  shipmentMode: MODE,
-  shippedAt: new Date().toISOString(),
+      return res.json({
+        success: true,
+        mode: MODE,
+        awb: null,
+        message: "Shipment created, AWB pending",
+        order_id: uniqueOrderId,
+        shipment_id: shipmentId,
+      });
+    }
 
-  // 🔥 IMPORTANT: customer & location (ADMIN PANEL FIX)
-  customerName: order.customer_name,
-  address: order.address,
-  city: order.city,
-  state: order.state || "",
-  pincode: order.pincode,
-  phone: order.phone || "",
-  email: order.email || "",
-});
-
+    // Save complete data
+    await db.ref(`orders/${order.userId}/${order.orderId}`).update({
+      shipmentId: shipmentId,
+      shipmentOrderId: uniqueOrderId,
+      awbCode: awbNumber,
+      shipmentMode: MODE,
+      shippedAt: new Date().toISOString(),
+      customerName: order.customer_name,
+      address: order.address,
+      city: order.city,
+      state: order.state || "",
+      pincode: order.pincode,
+      phone: order.phone || "",
+      email: order.email || "",
+    });
 
     return res.json({
       success: true,
       mode: MODE,
       awb: awbNumber,
-      order_id: r.data.order_id || order.orderId,
-      shipment_id: r.data.shipment_id || "test-shipment",
+      order_id: uniqueOrderId,
+      shipment_id: shipmentId,
     });
   } catch (err) {
-    console.error(
-      "CREATE SHIPMENT ERROR:",
-      err.response?.data || err.message
-    );
+    console.error("CREATE SHIPMENT ERROR:", err.response?.data || err.message);
+    
+    // 🔥 DETAILED ERROR LOG
+    if (err.response?.data) {
+      console.error("🔥 Full Error Response:", JSON.stringify(err.response.data, null, 2));
+    }
 
     return res.status(500).json({
       success: false,
