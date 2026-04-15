@@ -277,14 +277,20 @@ app.post("/create-shipment", async (req, res) => {
     // ---------------------------
     // AWB NUMBER HANDLING
     // ---------------------------
-    let awbNumber = null;
 
-    if (MODE === "live") {
-      awbNumber =
-        r.data?.awb_code ||
-        r.data?.response?.data?.awb_code ||
-        null;
-    }
+    // AWB NUMBER HANDLING
+let awbNumber = null;
+
+if (MODE === "live") {
+  awbNumber =
+    r.data?.awb_code ||
+    r.data?.response?.data?.awb_code ||
+    null;
+    
+  // 🔥 ADD DEBUG LOG
+  console.log("🔥 Shiprocket Response:", JSON.stringify(r.data, null, 2));
+  console.log("🔥 AWB found:", awbNumber);
+}
 if (!awbNumber) {
   throw new Error("Shiprocket did not return AWB");
 }
