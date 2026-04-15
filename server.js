@@ -283,32 +283,59 @@ app.post("/create-shipment", async (req, res) => {
       shipmentId = r.data?.shipment_id || r.data?.payload?.shipment_id;
       
       // Step 2: Generate AWB if shipment created but no AWB
-      if (shipmentId && !r.data?.awb_code) {
-        console.log("🔥 Generating AWB for shipment:", shipmentId);
-        
-        try {
-          const awbRes = await axios.post(
-            `${SHIPROCKET_BASE}/courier/assign/awb`,
-            {
-              shipment_id: shipmentId,
-            },
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-              },
-              timeout: 30000,
-            }
-          );
-          
-          console.log("🔥 AWB Response:", JSON.stringify(awbRes.data, null, 2));
-          
-          // Merge AWB data
-          r.data.awb_code = awbRes.data?.awb_code || awbRes.data?.response?.data?.awb_code;
-        } catch (awbErr) {
-          console.error("🔥 AWB Generation Error:", awbErr.response?.data || awbErr.message);
-        }
+    // -------------------------------------------------------
+// GENERATE AWB SEPARATELY (Retry endpoint)
+// -------------------------------------------------------
+app.post("/generate-awb", async (req, res) => {
+  try {
+    const { shipmentId } = req.body;
+    
+    if (!shipmentId) {
+      return res.status(400).json({ success: false, message: "Missing shipmentId" });
+    }
+    
+    const token = await getShiprocketToken();
+    
+    const awbRes = await axios.post(
+      `${SHIPROCKET_BASE}/courier/assign/awb`,
+      {
+        shipment_id: [shipmentId],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
       }
+    );
+    
+    console.log("🔥 AWB Response:", JSON.stringify(awbRes.data, null, 2));
+    
+    const awbData = awbRes.data?.awb_assign?.[0] || awbRes.data?.response?.data?.[0] || {};
+    const awbCode = awbData?.awb_code || awbData?.awb;
+    
+    if (!awbCode) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "AWB not generated",
+        fullResponse: awbRes.data 
+      });
+    }
+    
+    return res.json({ 
+      success: true, 
+      awb: awbCode,
+      shipmentId 
+    });
+    
+  } catch (err) {
+    console.error("GENERATE AWB ERROR:", err.response?.data || err.message);
+    return res.status(500).json({ 
+      success: false, 
+      error: err.response?.data || err.message 
+    });
+  }
+});
     }
 
     // AWB NUMBER HANDLING
