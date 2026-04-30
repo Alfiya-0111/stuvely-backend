@@ -84,10 +84,11 @@ app.get("/sitemap.xml", async (req, res) => {
 
         // ✅ Products inside collection
         if (collection.products) {
-          Object.entries(collection.products).forEach(([productId, product]) => {
-            urls.push(`
-              <url>
-                <loc>https://stuvely.com/collections/${collectionSlug}/product/${productId}</loc>
+         Object.entries(collection.products).forEach(([productId, product]) => {
+  const productSlug = product.slug || productId;
+  urls.push(`
+    <url>
+      <loc>https://stuvely.com/collections/${collectionSlug}/product/${productSlug}</loc>
                 <changefreq>weekly</changefreq>
                 <priority>0.9</priority>
               </url>
