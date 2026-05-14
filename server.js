@@ -42,13 +42,11 @@ app.get("/sitemap.xml", async (req, res) => {
 
     // 🔹 Static Pages
     const staticPages = [
-      "/",
-      "/about",
-      "/contact",
-      "/privacy",
-      "/security",
-      "/cancellation",
-      "/payment",
+ "/",
+  "/about",
+  "/contact",
+  "/privacy",
+  "/payment",
     ];
 
     staticPages.forEach(page => {
@@ -83,19 +81,20 @@ app.get("/sitemap.xml", async (req, res) => {
         `);
 
         // ✅ Products inside collection
-       if (collection.products) {
+    if (collection.products) {
   Object.entries(collection.products).forEach(([productId, product]) => {
-    if (!product.slug) return;  // ✅ yeh add karo
-    const productSlug = product.slug;  // ✅ || productId hata do
-  urls.push(`
-    <url>
-      <loc>https://stuvely.com/collections/${collectionSlug}/product/${productSlug}</loc>
-                <changefreq>weekly</changefreq>
-                <priority>0.9</priority>
-              </url>
-            `);
-          });
-        }
+    if (!product.slug) return;
+    // ✅ trailing dash/space clean karo
+    const productSlug = product.slug.replace(/[-\s]+$/, "");
+    urls.push(`
+      <url>
+        <loc>https://stuvely.com/collections/${collectionSlug}/product/${productSlug}</loc>
+        <changefreq>weekly</changefreq>
+        <priority>0.9</priority>
+      </url>
+    `);
+  });
+}
       });
     }
 
